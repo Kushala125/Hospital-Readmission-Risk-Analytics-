@@ -154,20 +154,268 @@ hospital-readmission-risk-analytics/
 **Libraries:** pandas, matplotlib, seaborn
 
 **Key analyses:**
-- Age and BMI distribution — both uniform, ruling out demographic bias in the dataset
-- Correlation heatmap — near-zero correlations across all features, establishing that single-variable models will underperform
-- Length of stay by condition group (violin plots) — no significant differences between diabetes, hypertension, both, or neither
-- Readmission risk heatmap by age × medication level — compound segmentation reveals pockets of elevated risk invisible in individual views
-- Patient risk vs. cost segmentation scatter — higher medication count patients show higher readmission risk but not longer stays, pointing to post-discharge as the real gap
-- ROI optimisation curve — models diminishing returns as intervention broadens; optimal ROI at top 10%
-- Cost-benefit model with tiered intervention pricing
-- Event sequence mapping — traces common patient journeys from admission to outcome, identifying failure paths
+## Which factors are actually related to readmission?
 
-**Worst-performing segment identified:**
-- Diabetes = 1, age group = 50–70, medication count ≥ 5
-- Success rate: **86.1%** — the lowest across all segments in the dataset
+<img width="1388" height="976" alt="image" src="https://github.com/user-attachments/assets/e047480e-74b9-46ce-b47a-36745058c3d0" />
 
----
+Patient outcomes such as hospital stay and readmission are not driven by individual variables, but rather by a combination of factors including overall health condition, comorbidities, and treatment complexity.
+The weak correlations across all variables indicate that simple linear relationships do not exist, making this a complex healthcare problem requiring advanced modeling techniques.
+–
+## Do patients with multiple conditions stay longer?
+
+<img width="661" height="465" alt="chart8" src="https://github.com/user-attachments/assets/821fc78b-9c78-435d-9dec-add9efe2ed1a" />
+
+
+
+“Even when combining key conditions like diabetes and hypertension, there was no significant difference in hospital stay distributions. This suggests that patient outcomes are driven more by overall clinical complexity rather than the presence of individual conditions.”
+
+## Does treatment complexity (medication count) affect hospital stay?
+
+
+<img width="665" height="358" alt="chart9" src="https://github.com/user-attachments/assets/e1971cac-5b57-48c8-af16-673f7fa75e97" />
+
+Median length of stay ≈ same (~5–6 days) across all medication counts
+Spread (variance) is also very similar
+No clear upward or downward trend
+
+More meds ≠ longer stay (surprising)
+So treatment complexity is not just number of meds
+Real drivers might be:
+patient condition severity
+combinations of diseases
+readmission behavior
+
+## Which combination of factors ACTUALLY drives readmission risk?
+
+<img width="1382" height="916" alt="image" src="https://github.com/user-attachments/assets/06c8bc72-0925-4f38-a2c3-948017e0999d" />
+
+Key Observations
+Young (18–30) + Low meds = HIGHEST risk (0.14)
+Middle age (30–50) + Medium meds = elevated risk (0.13)
+Older (70–90) + High meds = consistently high (0.13)
+“I segmented patients based on age and treatment complexity and identified high-risk cohorts driving readmissions.”
+
+## “Which patients should we intervene on BEFORE discharge?”
+
+
+
+<img width="1354" height="864" alt="image" src="https://github.com/user-attachments/assets/7d1ac134-e4ea-4d16-9587-c112d4de90dc" />
+
+“The relationship between medication count and readmission risk is weak and non-linear. This suggests that treatment complexity alone is insufficient to predict readmissions, and additional factors like patient condition or post-discharge care are likely more important drivers.”
+
+## “Where are we spending MORE but NOT reducing risk?”
+
+“After defining success, I analyzed how treatment complexity affects outcomes. I observed that beyond a certain medication count, success rates plateau or decline, indicating diminishing returns from increased treatment.”
+
+successful_outcome
+1    26326
+0     3674
+Name: count, dtype: int64
+
+##  “Does treatment complexity improve or hurt outcomes?”
+
+
+
+<img width="681" height="413" alt="CHART13" src="https://github.com/user-attachments/assets/71dbccf2-f998-490c-b34e-fbba5c22b770" />
+
+“After defining success, I analyzed how treatment complexity affects outcomes. I observed that beyond a certain medication count, success rates plateau or decline, indicating diminishing returns from increased treatment.”
+
+## Medication + Diabetes combo
+
+
+<img width="708" height="437" alt="chart15 " src="https://github.com/user-attachments/assets/7056f3ff-0723-40f8-a6b8-aead3c9a0d2e" />
+
+“While diabetic patients consistently show slightly lower success rates, treatment complexity (medication count) does not significantly impact outcomes. This suggests that increasing medications alone is not driving better or worse recovery.
+
+## Identify the lowest success group - highest treatment 
+
+
+<img width="641" height="433" alt="chart16" src="https://github.com/user-attachments/assets/38a14522-da85-4df1-8d6a-2789c9889828" />
+
+Worst-performing segment
+
+Diabetes = 1 (Yes)
+Age = 50–70
+High treatment (≥5 meds)
+Success rate ≈ 0.861 (lowest among all groups)
+“I defined success as non-readmission and found that increasing treatment complexity does not always improve outcomes. Specifically, diabetic patients aged 50–70 with high medication counts had the lowest success rates. This suggests diminishing returns from medication-heavy approaches. Instead of increasing treatment, I would introduce a risk-based alert system to trigger targeted interventions like follow-ups and care coordination, improving outcomes without increasing cost.”
+
+## “Do patient outcomes change based on WHEN or HOW treatment starts?”
+events = df.copy()
+
+events['event_sequence'] = (
+    "admission → "
+    + "diagnosis(" + events['diabetes'].astype(str) + ") → "
+    + "treatment(" + events['medication_count'].astype(str) + " meds) → "
+    + "stay(" + events['length_of_stay'].astype(str) + ") → "
+    + "outcome(" + events['readmitted_30_days'].astype(str) + ")"
+)
+
+events[['event_sequence']].head()   
+#Find Most Common Journeys
+journey_counts = events['event_sequence'].value_counts().head(10)
+print(journey_counts)
+# Filter failure journeys only
+failure_journeys = events[events['readmitted_30_days'] == 1]
+
+# Top failure paths
+failure_counts = failure_journeys['event_sequence'].value_counts().head(10)
+
+print(failure_counts)
+
+event_sequence
+admission → diagnosis(0) → treatment(4 meds) → stay(2) → outcome(0)     149
+admission → diagnosis(1) → treatment(1 meds) → stay(3) → outcome(0)     148
+admission → diagnosis(0) → treatment(10 meds) → stay(6) → outcome(0)    147
+admission → diagnosis(0) → treatment(3 meds) → stay(6) → outcome(0)     143
+admission → diagnosis(0) → treatment(0 meds) → stay(1) → outcome(0)     142
+admission → diagnosis(0) → treatment(4 meds) → stay(7) → outcome(0)     142
+admission → diagnosis(0) → treatment(8 meds) → stay(9) → outcome(0)     140
+admission → diagnosis(0) → treatment(2 meds) → stay(1) → outcome(0)     139
+admission → diagnosis(0) → treatment(9 meds) → stay(3) → outcome(0)     139
+admission → diagnosis(1) → treatment(2 meds) → stay(4) → outcome(0)     138
+Name: count, dtype: int64
+event_sequence
+admission → diagnosis(1) → treatment(8 meds) → stay(8) → outcome(1)     29
+admission → diagnosis(1) → treatment(5 meds) → stay(9) → outcome(1)     28
+admission → diagnosis(1) → treatment(1 meds) → stay(6) → outcome(1)     27
+admission → diagnosis(0) → treatment(3 meds) → stay(5) → outcome(1)     26
+admission → diagnosis(1) → treatment(5 meds) → stay(8) → outcome(1)     26
+admission → diagnosis(0) → treatment(10 meds) → stay(4) → outcome(1)    26
+admission → diagnosis(0) → treatment(0 meds) → stay(8) → outcome(1)     25
+admission → diagnosis(1) → treatment(3 meds) → stay(6) → outcome(1)     25
+admission → diagnosis(1) → treatment(8 meds) → stay(7) → outcome(1)     25
+admission → diagnosis(1) → treatment(9 meds) → stay(7) → outcome(1)     25
+Name: count, dtype: int64
+
+By mapping patient journeys, I found that the most common failure paths consistently involve diabetic patients, regardless of treatment intensity, and often include longer hospital stays. This suggests that outcomes are driven more by underlying condition than treatment volume. Therefore, I would introduce an early risk detection system at the diagnosis stage to proactively manage high-risk patients through personalized care and monitoring, rather than relying on increased treatment alone.”
+
+## Cost-Benefit Analysis
+## Always include this — it justifies your entire analysis to hospital leadership and makes your work actionable, not just academic.
+## “Is it worth investing in intervention for high-risk patients?”
+# 💰 Cost-Benefit Analysis (Pre-ML using simple rules)
+
+# Step 1: Define business assumptions
+cost_per_readmission = 15000      # $ per readmission
+intervention_cost = 500           # $ per patient intervention
+effectiveness = 0.30              # 30% reduction in readmissions
+
+# Step 2: Define HIGH-RISK group (rule-based)
+# Example: high meds (>=5) + diabetes = 1
+high_risk = df[(df['medication_count'] >= 5) & (df['diabetes'] == 1)]
+
+# Step 3: Baseline readmissions
+baseline_readmissions = high_risk['readmitted_30_days'].sum()
+baseline_cost = baseline_readmissions * cost_per_readmission
+
+# Step 4: Expected improvement after intervention
+expected_reduction = baseline_readmissions * effectiveness
+saved_cost = expected_reduction * cost_per_readmission
+
+# Step 5: Intervention cost
+intervention_total_cost = len(high_risk) * intervention_cost
+
+# Step 6: Net benefit + ROI
+net_benefit = saved_cost - intervention_total_cost
+roi = net_benefit / intervention_total_cost
+
+# Step 7: Output
+print("📊 High-Risk Patients:", len(high_risk))
+print("💰 Baseline Cost:", baseline_cost)
+print("💸 Intervention Cost:", intervention_total_cost)
+print("📉 Savings from Reduced Readmissions:", saved_cost)
+print("🔥 Net Benefit:", net_benefit)
+print("📈 ROI:", roi)
+
+
+ High-Risk Patients: 8054
+💰 Baseline Cost: 16395000
+💸 Intervention Cost: 4027000
+📉 Savings from Reduced Readmissions: 4918500.0
+🔥 Net Benefit: 891500.0
+📈 ROI: 0.22138068040725106
+
+“I identified a high-risk segment using rule-based logic and conducted a cost-benefit analysis. The intervention showed a positive ROI of 22%, generating nearly $900K in net savings. This validated that targeted interventions are financially viable, even before introducing predictive models.”
+
+## Strategy to Increase ROI (22% → 60%+)
+
+                                                                                                                                                                                                                                    # 🚀 ROI Optimization (Rule-based → Risk scoring → Top targeting → Tiered cost)
+
+# =========================
+# Step 1: Business assumptions
+# =========================
+cost_per_readmission = 15000
+effectiveness = 0.30   # intervention reduces 30% readmissions
+
+# =========================
+# Step 2: Create risk score (NO ML, smart proxy)
+# =========================
+df['risk_score'] = (
+    (df['medication_count'] * 0.4) +
+    (df['diabetes'] * 2) +
+    (df['length_of_stay'] * 0.3)
+)
+
+# =========================
+# Step 3: Target TOP 20% highest-risk patients
+# =========================
+top_n = int(0.2 * len(df))
+target = df.sort_values(by='risk_score', ascending=False).head(top_n)
+
+# =========================
+# Step 4: Tiered intervention cost (smart spending)
+# =========================
+def intervention_cost_fn(score):
+    if score > 8:
+        return 500   # high risk → intensive care
+    elif score > 5:
+        return 200   # medium risk → moderate intervention
+    else:
+        return 50    # low risk → light touch
+
+target['intervention_cost'] = target['risk_score'].apply(intervention_cost_fn)
+
+# =========================
+# Step 5: Cost-Benefit calculation
+# =========================
+baseline_readmissions = target['readmitted_30_days'].sum()
+baseline_cost = baseline_readmissions * cost_per_readmission
+
+expected_reduction = baseline_readmissions * effectiveness
+saved_cost = expected_reduction * cost_per_readmission
+
+intervention_total_cost = target['intervention_cost'].sum()
+
+net_benefit = saved_cost - intervention_total_cost
+roi = net_benefit / intervention_total_cost
+
+# =========================
+# Step 6: Output
+# =========================
+print("🎯 Targeted Patients:", len(target))
+print("💰 Baseline Cost:", baseline_cost)
+print("💸 Intervention Cost:", intervention_total_cost)
+print("📉 Savings:", saved_cost)
+print("🔥 Net Benefit:", net_benefit)
+print("🚀 ROI:", roi)
+
+
+A 
+🎯 Targeted Patients: 6000
+💰 Baseline Cost: 12090000
+💸 Intervention Cost: 1482600
+📉 Savings: 3626999.9999999995
+🔥 Net Benefit: 2144399.9999999995
+🚀 ROI: 1.4463779846216103
+
+
+“Initially, a rule-based intervention yielded a 22% ROI. However, by shifting to risk-based prioritization and targeting only the top 20% highest-risk patients, I significantly reduced intervention costs while retaining most of the savings. Additionally, introducing tiered interventions ensured efficient resource allocation. This improved ROI to over 140%, demonstrating that smarter targeting—not more intervention—is the key driver of impact.”
+## ROI vs % population curve
+<img width="687" height="426" alt="Screenshot 2026-04-24 at 1 55 53 AM" src="https://github.com/user-attachments/assets/12e68d02-8dc8-44e4-b93a-1686c7b4de65" />
+
+
+“I identified that the top 10% of patients contribute disproportionately to readmission costs. By targeting only this segment, we achieve the highest ROI (~43%). Expanding beyond this group leads to diminishing returns due to lower marginal benefit and increasing intervention costs.”
+
 
 ### Excel dashboard
 
@@ -187,7 +435,7 @@ Dashboard visuals:
 - Age vs. readmission rate (bar chart — consistent rates across all age groups)
 - Slicers: age, gender, frequent patient category
 
----
+## Identify the lowest success group - highest treatment
 
 ### Tableau dashboard
 
