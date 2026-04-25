@@ -125,27 +125,323 @@ hospital-readmission-risk-analytics/
 
 ### SQL analysis
 
-15+ queries covering four progressive layers:
+# 📦 IMPORTANT SQL QUERIES + KEY INSIGHTS (ONLY REQUIRED)
 
-**Descriptive**
-- Total patient count, average age, overall readmission rate
-- Readmission rate by age group, discharge destination, and risk group
+📄 Source: 
 
-**Diagnostic**
-- Diabetes vs. length of stay — no meaningful difference found
-- Medication count vs. hospital stay — stable across all medication levels
-- Age × medication level segmentation heatmap
+---
 
-**Risk modelling**
-- Custom risk score formula: `(medication_count × 0.4) + (diabetes × 2) + (length_of_stay × 0.3)`
-- NTILE(5) window function to segment all patients into five risk groups
-- Validation: highest-risk group had the highest readmission rate (13.5%), confirming the model
-- Top 10% highest-risk discharge pattern analysis
+## 🔹 1. TOTAL PATIENTS
 
-**Experimental**
-- A/B test simulation: control vs. follow-up intervention group across all discharge destinations
-- Funnel analysis: Total → High Complexity → Discharged to Rehab/Nursing → Readmitted
-- Financial impact: £55M total cost, £12M attributable to top 20% high-risk patients
+```sql
+SELECT COUNT(*) FROM hosp;
+```
+
+**Insight:**
+Total patients = **30,000**
+
+---
+
+## 🔹 2. READMISSION RATE
+
+```sql
+SELECT AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM hosp;
+```
+
+**Insight:**
+~**12% patients readmitted** → Major improvement opportunity
+
+---
+
+## 🔹 3. DIABETES vs LENGTH OF STAY
+
+```sql
+SELECT diabetes, AVG(length_of_stay) AS avg_stay
+FROM hosp
+GROUP BY diabetes;
+```
+
+**Insight:**
+No significant difference → Diabetes **not a key driver**
+
+---
+
+## 🔹 4. MEDICATION COUNT vs STAY
+
+```sql
+SELECT medication_count, AVG(length_of_stay) AS avg_stay
+FROM hosp
+GROUP BY medication_count
+ORDER BY medication_count;
+```
+
+**Insight:**
+No clear trend → Complexity **does not affect stay**
+
+---
+
+## 🔹 5. READMISSION vs STAY
+
+```sql
+SELECT readmitted_30_days, AVG(length_of_stay) AS avg_stay
+FROM hosp
+GROUP BY readmitted_30_days;
+```
+
+**Insight:**
+Stay duration **does not impact readmission**
+
+---
+
+## 🔹 6. AGE GROUP vs READMISSION
+
+```sql
+SELECT
+CASE
+ WHEN age BETWEEN 18 AND 30 THEN '18-30'
+ WHEN age BETWEEN 31 AND 50 THEN '30-50'
+ WHEN age BETWEEN 51 AND 70 THEN '50-70'
+ ELSE '70-90'
+END AS age_group,
+AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM hosp
+GROUP BY age_group
+ORDER BY readmission_rate DESC;
+```
+
+**Insight:**
+Older patients slightly higher risk → Age alone **not strong factor**
+
+---
+
+## 🔹 7. AGE + MEDICATION (COMBINED RISK)
+
+```sql
+SELECT
+CASE
+ WHEN age BETWEEN 18 AND 30 THEN '18-30'
+ WHEN age BETWEEN 31 AND 50 THEN '30-50'
+ WHEN age BETWEEN 51 AND 70 THEN '50-70'
+ ELSE '70-90'
+END AS age_group,
+CASE
+ WHEN medication_count <= 3 THEN 'Low'
+ WHEN medication_count <= 6 THEN 'Medium'
+ ELSE 'High'
+END AS med_group,
+AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM hosp
+GROUP BY age_group, med_group
+ORDER BY readmission_rate DESC;
+```
+
+**Insight:**
+Highest risk = **Older + High medication (~13%)**
+→ Risk is **multi-factor**
+
+---
+
+## 🔹 8. RISK SEGMENTATION (TOP 20%)
+
+```sql
+SELECT *
+FROM (
+SELECT *,
+(medication_count * 0.4 +
+ diabetes * 2 +
+ length_of_stay * 0.3) AS risk_score,
+NTILE(5) OVER (
+ ORDER BY (medication_count * 0.4 +
+           diabetes * 2 +
+           length_of_stay * 0.3) DESC
+) AS risk_group
+FROM hosp
+) t
+WHERE risk_group = 1;
+```
+
+**Insight:**
+Top 20% = **High-risk patients**
+
+---
+
+## 🔹 9. COST FROM HIGH-RISK PATIENTS
+
+```sql
+SELECT SUM(readmitted_30_days) * 15000 AS total_cost FROM hosp;
+
+SELECT COUNT(*) AS patients,
+SUM(readmitted_30_days) * 15000 AS high_risk_cost
+FROM (
+SELECT *,
+NTILE(5) OVER (
+ ORDER BY (medication_count * 0.4 +
+           diabetes * 2 +
+           length_of_stay * 0.3) DESC
+) AS risk_group
+FROM hosp
+) t
+WHERE risk_group = 1;
+```
+
+**Insight:**
+High-risk patients contribute **~22% cost (~£12M)**
+→ Targeting them saves money
+
+---
+
+## 🔹 10. DISCHARGE DESTINATION IMPACT
+
+```sql
+SELECT discharge_destination,
+COUNT(*) AS patients,
+AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM hosp
+GROUP BY discharge_destination
+ORDER BY readmission_rate DESC;
+```
+
+**Insight:**
+Rehab/Nursing ≈ **17%** vs Home ≈ **10%**
+→ Higher severity patients
+
+---
+
+## 🔹 11. RISK vs DISCHARGE MISMATCH
+
+```sql
+SELECT discharge_destination, risk_group, COUNT(*) AS patients
+FROM (
+SELECT *,
+NTILE(5) OVER (
+ ORDER BY (medication_count * 0.4 +
+           diabetes * 2 +
+           length_of_stay * 0.3) DESC
+) AS risk_group
+FROM hosp
+) t
+GROUP BY discharge_destination, risk_group;
+```
+
+**Insight:**
+High-risk patients **not prioritized for rehab**
+→ Poor discharge decisions
+
+---
+
+## 🔹 12. MODEL VALIDATION
+
+```sql
+SELECT risk_group,
+AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM (
+SELECT *,
+NTILE(5) OVER (
+ ORDER BY (medication_count * 0.4 +
+           diabetes * 2 +
+           length_of_stay * 0.3) DESC
+) AS risk_group
+FROM hosp
+) t
+GROUP BY risk_group;
+```
+
+**Insight:**
+Highest risk group ≈ **13.5%**
+→ Model is valid
+
+---
+
+## 🔹 13. FUNNEL ANALYSIS
+
+```sql
+SELECT 'Total Patients', COUNT(*) FROM hosp
+UNION ALL
+SELECT 'High Complexity', COUNT(*)
+FROM hosp
+WHERE medication_count >= 7 OR length_of_stay >= 7
+UNION ALL
+SELECT 'Discharged to Rehab/Nursing', COUNT(*)
+FROM hosp
+WHERE discharge_destination IN ('Rehab','Nursing_Facility')
+UNION ALL
+SELECT 'Readmitted', COUNT(*)
+FROM hosp
+WHERE readmitted_30_days = 1;
+```
+
+**Insight:**
+61% high-risk → only 30% get rehab
+→ **Big care gap**
+
+---
+
+## 🔹 14. TOP 10% HIGH-RISK PATIENTS
+
+```sql
+SELECT discharge_destination,
+COUNT(*) AS patients,
+AVG(readmitted_30_days) * 100 AS readmission_rate
+FROM (
+SELECT *,
+NTILE(10) OVER (
+ ORDER BY (medication_count * 0.4 +
+           diabetes * 2 +
+           length_of_stay * 0.3) DESC
+) AS risk_decile
+FROM hosp
+) t
+WHERE risk_decile = 1
+GROUP BY discharge_destination;
+```
+
+**Insight:**
+~70% high-risk patients sent **home**
+→ Major problem
+
+---
+
+## 🔹 15. A/B TEST (INTERVENTION IMPACT)
+
+```sql
+SELECT experiment_group,
+COUNT(*) AS patients,
+AVG(new_readmission) * 100 AS readmission_rate
+FROM (...)
+GROUP BY experiment_group;
+```
+
+**Insight:**
+11.45% → 10.95% (↓4.4%)
+→ Saves ~£2.25M
+
+---
+
+## 🔹 16. BEST SEGMENT FOR TREATMENT
+
+```sql
+SELECT discharge_destination, experiment_group,
+AVG(new_readmission) * 100
+FROM (...)
+GROUP BY discharge_destination, experiment_group;
+```
+
+**Insight:**
+Best results in **Rehab patients**
+→ Use **targeted strategy**
+
+---
+
+# ✅ FINAL KEY TAKEAWAYS
+
+* Readmissions ≠ stay duration
+* Risk = **multi-factor (age + meds + condition)**
+* High-risk patients drive **costs**
+* Discharge decisions are **misaligned**
+* Targeted intervention = **best ROI**
+
+---
 
 ---
 
