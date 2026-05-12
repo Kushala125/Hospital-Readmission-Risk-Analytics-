@@ -291,129 +291,621 @@ FROM (
 
 ---
 
-## 🐍 Python EDA — Visual Storytelling
+## 🐍 Python EDA — Code + Visual Storytelling
 
-> Python's role was distributional insight and economic optimisation — finding *how* variables behave, not just *what* their averages say.
-
----
-
-### 📊 Chart 1 — Correlation Heatmap: The Most Important Non-Finding
-
-![Correlation Heatmap](images/chart1.png)
-
-**What it shows:** Every correlation between patient features and readmission hovers near zero. There is **no single strong predictor** anywhere in the matrix. For most analysts, this would feel like failure — the data isn't cooperating. The correct interpretation is the opposite: **readmission is inherently multivariate**. No linear relationship exists because the problem is non-linear. This finding redirected the entire analysis toward compound segmentation and custom risk scoring.
+> Python's role was distributional insight and economic optimisation — finding *how* variables behave, not just *what* their averages say. Every analysis below includes the exact code used.
 
 ---
 
-### 📊 Chart 2 — Does Combining Conditions Extend Hospital Stay?
+### 🔬 Setup — Loading & Profiling the Dataset
+
+```python
+import pandas as pd
+
+df = pd.read_csv("hosp.csv")
+df.head()
+```
+
+```
+   age  gender  cholesterol   bmi  diabetes  hypertension  medication_count  \
+0   74   Other          240  31.5         1             0                 5   
+1   46  Female          292  36.3         0             0                 4   
+2   89   Other          153  30.3         0             1                 1   
+3   84  Female          153  31.5         0             1                 3   
+4   32   Other          205  18.4         0             1                 6   
+
+   length_of_stay discharge_destination  readmitted_30_days  systolic_bp  \
+0               1       Nursing_Facility                   1          130   
+1               3       Nursing_Facility                   0          120   
+2               1                  Home                   0          135   
+3              10                  Home                   0          123   
+4               4       Nursing_Facility                   0          135   
+```
+
+```python
+df.describe()
+```
+
+| | age | cholesterol | bmi | medication_count | length_of_stay | readmitted_30_days |
+|---|---|---|---|---|---|---|
+| **mean** | 53.88 | 225.26 | 28.95 | 5.01 | 5.50 | **0.122** |
+| **std** | 21.06 | 43.59 | 6.35 | 3.17 | 2.87 | 0.33 |
+| **min** | 18 | 150 | 18.0 | 0 | 1 | 0 |
+| **max** | 90 | 300 | 40.0 | 10 | 10 | 1 |
+
+> **Population snapshot:** Average age ~54, average BMI ~29 (overweight category), readmission rate **12.25%**. No missing values across all 30,000 records.
+
+---
+
+### 📊 Chart 1 — Age Distribution of Patients
+
+```python
+import matplotlib.pyplot as plt
+
+plt.hist(df['age'], bins=20)
+plt.title("Age Distribution of Patients")
+plt.xlabel("Age")
+plt.ylabel("Count")
+plt.show()
+```
+
+![Chart 1](images/chart1.png)
+
+**What it shows:** The age distribution is remarkably uniform across the full 18–90 range. There is no peak at any particular age bracket — the dataset represents a genuinely balanced cross-section of the patient population. This matters because it means **any age-related findings will be real signals, not sampling artifacts**. If older patients showed elevated readmission rates, you could trust that finding. They don't — which is the first signal that something counterintuitive is happening in this data.
+
+---
+
+### 📊 Chart 2 — Do Diabetic Patients Stay Longer?
+
+```python
+df.groupby('diabetes')['length_of_stay'].mean().plot(kind='bar')
+
+plt.title("Length of Stay: Diabetes vs Non-Diabetes")
+plt.xlabel("Diabetes (0 = No, 1 = Yes)")
+plt.ylabel("Average Length of Stay")
+plt.show()
+```
 
 ![Chart 2](images/chart2.png)
 
-**What it shows:** Even when diabetes and hypertension are combined, the distribution of hospital stay lengths is essentially unchanged. This confirms that **comorbidity burden doesn't explain length of stay** — a counterintuitive finding that strips another assumed variable from the model. Outcomes are driven by clinical complexity as a whole, not by the presence of individual conditions.
+**What it shows:** Diabetic and non-diabetic patients have virtually identical average hospital stays — both hover around 5.5 days. The bar heights are indistinguishable. **Diabetes does not extend hospitalisation.** This is a direct refutation of one of the most common assumptions entering healthcare analysis: that chronic conditions mean longer stays. The data says otherwise.
 
 ---
 
-### 📊 Chart 3 — Medication Count vs Length of Stay
+### 📊 Chart 3 — Does Hypertension Affect Hospital Stay?
+
+```python
+df.groupby('hypertension')['length_of_stay'].mean().plot(kind='bar')
+
+plt.title("Length of Stay: Hypertension vs Non-Hypertension")
+plt.xlabel("Hypertension (0 = No, 1 = Yes)")
+plt.ylabel("Average Length of Stay")
+plt.show()
+```
 
 ![Chart 3](images/chart3.png)
 
-**What it shows:** The median length of stay sits at ~5–6 days across *every* medication count level, from 0 to 10. The spread (variance) is also consistent throughout. **More medications do not mean longer stays.** This rules out treatment complexity as measured by medication volume as a driver of hospitalisation duration. The real drivers of poor outcomes are hiding elsewhere — in condition severity, combinations of risk factors, and what happens after discharge.
+**What it shows:** Identical story to diabetes — hypertensive and non-hypertensive patients stay for almost exactly the same duration. **Two of medicine's most common chronic conditions, examined individually, tell us nothing about why some patients stay longer.** The implication is clear: individual comorbidities are poor predictors of resource use. Combinations are where the signal hides.
 
 ---
 
-### 📊 Chart 4 — Age × Medication Risk Heatmap
+### 📊 Chart 4 — Correlation Heatmap: The Most Important Non-Finding
+
+```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+numeric_df = df.select_dtypes(include=['number'])
+
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm')
+plt.title("Feature Correlation Heatmap", fontsize=14, fontweight='bold')
+plt.show()
+```
 
 ![Chart 4](images/chart4.png)
 
-**What it shows:** A segmentation grid plotting age group against medication complexity. The highest readmission risk — **0.14** — appears in the **18–30, low medication** group, which defies conventional assumptions. Middle-aged patients with medium medication counts also show elevated risk (0.13). The key insight is that **no single cell dominates cleanly** — risk is distributed and non-obvious, which is exactly why rule-of-thumb approaches fail.
+**What it shows:** Every correlation between patient features and readmission hovers near zero. There is **no single strong predictor** anywhere in the matrix — not age, not BMI, not medication count, not blood pressure. For most analysts, this would feel like failure. The correct interpretation is the opposite: **readmission is inherently multivariate**. No linear relationship exists because the problem is non-linear and compound. This single chart redirected the entire analysis toward segmentation and custom risk scoring.
 
 ---
 
-### 📊 Chart 5 — Medication Count vs Readmission Risk
+### 📊 Chart 5 — Hospital Stay Distributions by Condition Combo (Violin)
+
+```python
+import seaborn as sns
+
+# Create combined condition group
+df['risk_group'] = df['diabetes'].astype(str) + "_" + df['hypertension'].astype(str)
+df['risk_group'] = df['risk_group'].map({
+    '0_0': 'No conditions',
+    '1_0': 'Diabetes Only',
+    '0_1': 'Hypertension Only',
+    '1_1': 'Both Conditions'
+})
+
+sns.set(style="whitegrid")
+plt.figure(figsize=(10, 6))
+
+sns.violinplot(
+    x='risk_group',
+    y='length_of_stay',
+    data=df,
+    inner='quartile'
+)
+
+plt.title("Distribution of Hospital Stay by Patient Condition", fontsize=14, weight='bold')
+plt.xlabel("Patient Group")
+plt.ylabel("Length of Stay")
+plt.xticks(rotation=20)
+plt.show()
+```
 
 ![Chart 5](images/chart5.png)
 
-**What it shows:** The relationship between number of medications and likelihood of readmission is **weak and non-linear** — it dips, rises, plateaus, and offers no consistent pattern. This confirms that treatment complexity (measured by medication count alone) cannot reliably identify which patients will return. A risk model needs more dimensions.
+**What it shows:** Four violin plots — one for each combination of diabetes and hypertension status — showing nearly identical width, height, and quartile placement. The distributions are so similar they're essentially copies of each other. **Having both conditions does not shift the hospital stay distribution compared to having neither.** This definitively rules out comorbidity burden as a driver of hospitalisation duration and keeps the analytical focus on post-discharge factors.
 
 ---
 
-### 📊 Chart 6 — Success Rate vs Treatment Complexity
+### 📊 Chart 6 — Medication Count vs Hospital Stay (Box Distribution)
+
+```python
+sns.set_theme(style="darkgrid")
+plt.figure(figsize=(12, 6))
+
+sns.boxplot(
+    x='medication_count',
+    y='length_of_stay',
+    data=df,
+    palette='Spectral'
+)
+
+plt.title("Medication Count vs Hospital Stay (Distribution View)", fontsize=16, weight='bold')
+plt.xlabel("Medication Count")
+plt.ylabel("Length of Stay")
+plt.show()
+```
 
 ![Chart 6](images/chart6%20.png)
 
-**What it shows:** As medication count increases, the success rate (non-readmission) eventually **plateaus and begins to decline**. There are clear diminishing returns beyond a certain medication threshold. More treatment is not better treatment — in fact, at high medication counts, the data suggests patient outcomes stop improving. This makes the economic case for *smarter* targeting over *more* intervention.
+**What it shows:** Eleven side-by-side box plots — one per medication count level (0–10) — with almost identical median lines, IQR boxes, and whisker lengths. The medians all sit at ~5–6 days. The variance barely changes. **More medications do not mean longer stays.** This is counterintuitive and important: treatment complexity as measured by medication volume doesn't explain hospitalisation duration. The real drivers are hiding elsewhere.
 
 ---
 
-### 📊 Chart 7 — Diabetes × Medication: Combined Effect on Outcomes
+### 📊 Chart 7 — Age × Medication: What Actually Drives Readmission Risk?
+
+```python
+import seaborn as sns
+
+sns.set_theme(style="dark")
+
+# Create segmentation bins
+df['age_group'] = pd.cut(df['age'], bins=[18, 30, 50, 70, 90],
+                          labels=['18-30', '30-50', '50-70', '70-90'])
+df['med_group'] = pd.cut(df['medication_count'], bins=[0, 3, 6, 10],
+                          labels=['Low', 'Medium', 'High'])
+
+# Pivot table for heatmap
+pivot = df.pivot_table(
+    values='readmitted_30_days',
+    index='age_group',
+    columns='med_group',
+    aggfunc='mean'
+)
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(pivot, annot=True, cmap='coolwarm', fmt=".2f")
+
+plt.title("Readmission Risk by Age & Treatment Complexity", fontsize=16, weight='bold')
+plt.xlabel("Medication Level")
+plt.ylabel("Age Group")
+plt.show()
+```
 
 ![Chart 7](images/chart7.png)
 
-**What it shows:** Diabetic patients consistently show slightly lower success rates than non-diabetics across all medication levels. Crucially, **increasing medication count doesn't close that gap** — the lines run roughly parallel. This means that for diabetic patients, the problem is not being under-medicated; the problem is something downstream of the hospital stay entirely.
+**What it shows:** A heatmap where rows are age groups and columns are medication complexity tiers. The highest readmission risk — **0.14** — appears in the **18–30, Low medication** cell, which completely defies the assumption that older, more medicated patients are the highest risk. Middle-aged patients with medium medications (0.13) also stand out. **Risk doesn't follow a simple age or medication gradient — it forms a non-obvious pattern that only becomes visible through compound segmentation.** This is why rule-of-thumb flagging systems fail.
 
 ---
 
-### 📊 Chart 8 — Hospital Stay Distributions by Condition Combo
+### 📊 Chart 8 — Patient Risk vs Cost Segmentation (Scatter)
+
+```python
+sns.set_theme(style="dark")
+
+# Create grouped data
+grouped = df.groupby('medication_count').agg({
+    'length_of_stay': 'mean',
+    'readmitted_30_days': 'mean'
+}).reset_index()
+
+plt.figure(figsize=(10, 6))
+
+scatter = plt.scatter(
+    grouped['readmitted_30_days'],
+    grouped['length_of_stay'],
+    s=200,
+    c=grouped['medication_count'],
+    cmap='plasma',
+    alpha=0.8
+)
+
+for i, row in grouped.iterrows():
+    plt.text(row['readmitted_30_days'] + 0.0005, row['length_of_stay'] + 0.01,
+             f"Med {int(row['medication_count'])}", fontsize=9)
+
+# Decision quadrant lines
+plt.axhline(df['length_of_stay'].mean(), linestyle='--', color='white')
+plt.axvline(df['readmitted_30_days'].mean(), linestyle='--', color='white')
+
+plt.colorbar(label="Medication Count")
+plt.title("Patient Risk vs Cost Segmentation", fontsize=16, weight='bold')
+plt.xlabel("Readmission Risk")
+plt.ylabel("Avg Length of Stay")
+plt.show()
+```
 
 ![Chart 8](images/chart8.png)
 
-**What it shows:** Box plots comparing length of stay across combinations of diabetes and hypertension status. All four groups (neither condition, diabetes only, hypertension only, both) show nearly identical distributions — same median, similar spread. **Comorbidity count does not predict how long patients stay.** This removes another intuitive assumption and keeps the focus on post-discharge factors.
+**What it shows:** Each dot represents a medication count level, plotted by its average readmission rate (x-axis) and average length of stay (y-axis). The dashed white lines create four quadrants — High Risk/High Cost, High Risk/Low Cost, Low Risk/High Cost, Low Risk/Low Cost. Points scatter across quadrants without any clear clustering. **No medication level reliably lands in the "low risk, low cost" quadrant.** This confirms that medication count alone is not a useful lever — targeting strategy needs to be built on the composite risk score, not any single variable.
 
 ---
 
-### 📊 Chart 9 — Medication Count vs Stay: No Trend
+### 📊 Chart 9 — North Star: Success Rate vs Treatment Complexity
+
+```python
+# Define the success metric
+df['successful_outcome'] = 1 - df['readmitted_30_days']
+
+# Aggregate by medication count
+rate = df.groupby('medication_count')['successful_outcome'].mean().reset_index()
+
+sns.set_theme(style="darkgrid")
+plt.figure(figsize=(10, 6))
+
+sns.lineplot(
+    x='medication_count',
+    y='successful_outcome',
+    data=rate,
+    marker='o',
+    linewidth=3
+)
+
+plt.title("Success Rate vs Treatment Complexity", fontsize=16, weight='bold')
+plt.xlabel("Medication Count")
+plt.ylabel("Success Rate (Non-Readmission)")
+plt.show()
+```
+
+```
+successful_outcome
+1    26326
+0     3674
+Name: count, dtype: int64
+```
 
 ![Chart 9](images/chart9.png)
 
-**What it shows:** A scatter/box analysis confirming that across all 11 medication count levels (0–10), hospital stay distributions remain flat. The insight is reinforced: neither condition severity nor treatment intensity — as measured by individual variables — moves the hospitalisation needle in any predictable direction.
+**What it shows:** Success rate (non-readmission) is plotted against medication count, with the north star metric defined as `1 - readmitted_30_days`. The line is non-monotonic — it rises, flattens, dips, and plateaus with no clean upward trend. **Beyond a certain medication threshold, success rates plateau or decline.** This is the diminishing returns finding in its clearest form: adding more medications past a certain point stops helping and may begin to harm. Any intervention programme that routes patients toward medication escalation is working against this evidence.
 
 ---
 
-### 📊 Chart 10 — Worst Segment: Diabetic, Age 50–70, High Medication
+### 📊 Chart 10 — Success Rate by Diabetes Status
+
+```python
+rate = df.groupby('diabetes')['successful_outcome'].mean().reset_index()
+
+plt.figure(figsize=(8, 5))
+sns.barplot(x='diabetes', y='successful_outcome', data=rate)
+
+plt.title("Success Rate by Diabetes Condition", fontsize=16, weight='bold')
+plt.xlabel("Diabetes (0 = No, 1 = Yes)")
+plt.ylabel("Success Rate")
+plt.show()
+```
 
 ![Chart 10](images/chart10.png)
 
-**What it shows:** After building a three-way segmentation (diabetes status × age group × medication tier), one segment stands out at the bottom: **diabetic patients aged 50–70 with 5+ medications**. Their success rate is just **86.1%** — the lowest across all groups. This is the highest-priority cohort for clinical intervention. Not because of any single factor, but because all three converge.
+**What it shows:** Non-diabetic patients (0) show a marginally higher success rate than diabetic patients (1). The gap is visible but not dramatic. The key takeaway is not the size of the gap but the implication: **diabetes creates a consistent headwind on outcomes**, but it's not overwhelming on its own. What makes it dangerous is when it combines with other risk factors — as the next chart demonstrates.
 
 ---
 
-### 📊 Chart 11 — Patient Journey Mapping
+### 📊 Chart 11 — CHART 13: Diminishing Returns by Diabetes Group
 
-![Chart 11](images/chart11.png)
+```python
+combo = df.groupby(['diabetes', 'medication_count'])['successful_outcome'].mean().reset_index()
 
-**What it shows:** Patient pathways are reconstructed as event sequences: `admission → diagnosis → treatment → stay → outcome`. The most common *failure* journeys consistently involve **diabetic patients with longer stays**, regardless of medication volume. The most common *success* journeys show no clear structural difference in treatment — reinforcing that outcomes are driven by underlying condition, not treatment intensity.
+plt.figure(figsize=(10, 6))
 
----
+sns.lineplot(
+    x='medication_count',
+    y='successful_outcome',
+    hue='diabetes',
+    data=combo,
+    marker='o'
+)
 
-### 📊 Chart 12 — ROI vs % Population Targeted
-
-![Chart 12](images/chart12.png)
-
-**What it shows:** The economic sweet spot visualised. ROI peaks at approximately **43%** when targeting the **top 10%** of highest-risk patients. As the intervention is broadened to include more patients, ROI falls due to increasing intervention costs with diminishing marginal benefit. **Smarter, narrower targeting — not wider coverage — maximises return.** This is the quantitative backbone for Recommendation 1.
-
----
-
-### 📊 CHART 13 — Diminishing Returns: Medication vs Outcomes
+plt.title("Success Rate vs Treatment Complexity (by Diabetes)", fontsize=16, weight='bold')
+plt.xlabel("Medication Count")
+plt.ylabel("Success Rate")
+plt.legend(title="Diabetes (0 = No, 1 = Yes)")
+plt.show()
+```
 
 ![CHART 13](images/CHART13.png)
 
-**What it shows:** A direct visualisation of the plateau effect — success rate improvements slow and eventually reverse as medication count increases. The inflection point marks where additional treatment stops helping and may begin introducing complications or adherence challenges. Any intervention programme should **not be built on medication escalation** — the data actively argues against it.
+**What it shows:** Two lines — one for diabetic patients, one for non-diabetic — plotted across all medication count levels. Both lines show the same plateau-and-decline pattern. Critically, **the diabetic line consistently sits below the non-diabetic line at every medication level**. Increasing medication count doesn't close the gap. This tells us that for diabetic patients, the problem is not under-treatment — it's something downstream of the hospital stay that medications alone cannot address.
 
 ---
 
-### 📊 Chart 14 — Cost-Benefit Summary
+### 📊 Chart 12 — Worst Performing Segment: Drilling to the Bottom
+
+```python
+# Filter to high-treatment patients only
+high_treatment = df[df['medication_count'] >= 5]
+
+# Three-way segmentation: diabetes × age group × success rate
+deep_segment = high_treatment.groupby(
+    ['diabetes', 'age_group']
+)['successful_outcome'].mean().reset_index()
+
+deep_segment = deep_segment.sort_values(by='successful_outcome')
+print(deep_segment)
+
+# Automatically surface the worst segment
+worst_segment = deep_segment.iloc[0]
+print(f"\n🚨 Highest Risk Segment:")
+print(f"Diabetes: {worst_segment['diabetes']}")
+print(f"Age Group: {worst_segment['age_group']}")
+print(f"Success Rate: {worst_segment['successful_outcome']:.3f}")
+```
+
+```
+   diabetes age_group  successful_outcome
+        1.0     50-70               0.861   ← WORST
+        1.0     70-90               0.874
+        1.0     30-50               0.879
+        0.0     18-30               0.881
+        ...
+
+🚨 Highest Risk Segment:
+Diabetes: 1
+Age Group: 50-70
+Success Rate: 0.861
+```
+
+```python
+plt.figure(figsize=(10, 6))
+
+sns.barplot(
+    x='age_group',
+    y='successful_outcome',
+    hue='diabetes',
+    data=deep_segment
+)
+
+plt.title("Success Rate — High Treatment Patients Only", fontsize=16, weight='bold')
+plt.xlabel("Age Group")
+plt.ylabel("Success Rate")
+plt.legend(title="Diabetes (0 = No, 1 = Yes)")
+plt.show()
+```
+
+![Chart 16](images/chart16.png)
+
+**What it shows:** Among high-treatment patients (5+ medications), grouped by age and diabetes status, the **diabetic 50–70 cohort has the lowest success rate at 86.1%**. This is the worst-performing segment in the entire dataset — not by a small margin but consistently, across every analytical approach applied. This group requires a **dedicated care pathway**, not just a general intervention flag.
+
+---
+
+### 📊 Chart 13 — Patient Journey Event Mapping
+
+```python
+events = df.copy()
+
+events['event_sequence'] = (
+    "admission → "
+    + "diagnosis(" + events['diabetes'].astype(str) + ") → "
+    + "treatment(" + events['medication_count'].astype(str) + " meds) → "
+    + "stay(" + events['length_of_stay'].astype(str) + ") → "
+    + "outcome(" + events['readmitted_30_days'].astype(str) + ")"
+)
+
+# Most common success paths
+journey_counts = events['event_sequence'].value_counts().head(10)
+print(journey_counts)
+
+# Most common failure paths
+failure_journeys = events[events['readmitted_30_days'] == 1]
+failure_counts = failure_journeys['event_sequence'].value_counts().head(10)
+print(failure_counts)
+```
+
+```
+# TOP FAILURE PATHS:
+admission → diagnosis(1) → treatment(8 meds) → stay(8) → outcome(1)    29
+admission → diagnosis(1) → treatment(5 meds) → stay(9) → outcome(1)    28
+admission → diagnosis(1) → treatment(1 meds) → stay(6) → outcome(1)    27
+admission → diagnosis(0) → treatment(3 meds) → stay(5) → outcome(1)    26
+admission → diagnosis(1) → treatment(5 meds) → stay(8) → outcome(1)    26
+```
+
+![Chart 11](images/chart11.png)
+
+**What it shows:** Patient pathways are reconstructed as readable event sequences — admission → diagnosis → treatment → stay → outcome. The most common *failure* journeys consistently involve **diabetic patients (`diagnosis(1)`) regardless of medication count** — sometimes with 1 med, sometimes with 8 meds, both leading to readmission. Treatment intensity is not the common thread. **Diabetes status is.** The journey mapping confirms that outcomes are driven by underlying condition, not treatment volume.
+
+---
+
+## 💰 Financial Model — Code + ROI Optimisation
+
+---
+
+### 💸 Stage 1: Rule-Based Intervention (22% ROI)
+
+```python
+# Business assumptions
+cost_per_readmission = 15000    # £ per readmission
+intervention_cost = 500         # £ per patient
+effectiveness = 0.30            # 30% reduction in readmissions
+
+# Define HIGH-RISK group: high meds (>=5) AND diabetic
+high_risk = df[(df['medication_count'] >= 5) & (df['diabetes'] == 1)]
+
+# Cost-benefit calculation
+baseline_readmissions = high_risk['readmitted_30_days'].sum()
+baseline_cost = baseline_readmissions * cost_per_readmission
+
+expected_reduction = baseline_readmissions * effectiveness
+saved_cost = expected_reduction * cost_per_readmission
+
+intervention_total_cost = len(high_risk) * intervention_cost
+
+net_benefit = saved_cost - intervention_total_cost
+roi = net_benefit / intervention_total_cost
+
+print("📊 High-Risk Patients:", len(high_risk))
+print("💰 Baseline Cost:", baseline_cost)
+print("💸 Intervention Cost:", intervention_total_cost)
+print("📉 Savings:", saved_cost)
+print("🔥 Net Benefit:", net_benefit)
+print("📈 ROI:", roi)
+```
+
+```
+📊 High-Risk Patients: 8054
+💰 Baseline Cost: £16,395,000
+💸 Intervention Cost: £4,027,000
+📉 Savings: £4,918,500
+🔥 Net Benefit: £891,500
+📈 ROI: 0.22  →  22%
+```
+
+---
+
+### 🚀 Stage 2: Risk-Score Targeting with Tiered Costs (144% ROI)
+
+```python
+# Step 1: Create composite risk score (no ML required)
+df['risk_score'] = (
+    (df['medication_count'] * 0.4) +
+    (df['diabetes'] * 2) +
+    (df['length_of_stay'] * 0.3)
+)
+
+# Step 2: Target only top 20% highest-risk patients
+top_n = int(0.2 * len(df))
+target = df.sort_values(by='risk_score', ascending=False).head(top_n)
+
+# Step 3: Tiered intervention cost — smarter spending
+def intervention_cost_fn(score):
+    if score > 8:
+        return 500    # high risk → intensive care coordination
+    elif score > 5:
+        return 200    # medium risk → moderate follow-up
+    else:
+        return 50     # lower risk → light-touch check-in
+
+target['intervention_cost'] = target['risk_score'].apply(intervention_cost_fn)
+
+# Step 4: Calculate ROI
+baseline_readmissions = target['readmitted_30_days'].sum()
+baseline_cost = baseline_readmissions * cost_per_readmission
+saved_cost = baseline_readmissions * effectiveness * cost_per_readmission
+intervention_total_cost = target['intervention_cost'].sum()
+
+net_benefit = saved_cost - intervention_total_cost
+roi = net_benefit / intervention_total_cost
+
+print("🎯 Targeted Patients:", len(target))
+print("💰 Baseline Cost:", baseline_cost)
+print("💸 Intervention Cost:", intervention_total_cost)
+print("📉 Savings:", saved_cost)
+print("🔥 Net Benefit:", net_benefit)
+print("🚀 ROI:", roi)
+```
+
+```
+🎯 Targeted Patients: 6,000
+💰 Baseline Cost: £12,090,000
+💸 Intervention Cost: £1,482,600
+📉 Savings: £3,627,000
+🔥 Net Benefit: £2,144,400
+🚀 ROI: 1.446  →  144%
+```
 
 ![Chart 14](images/chart14.png)
 
-**What it shows:** The financial model output. Rule-based intervention (high meds + diabetes flag) generates a **22% ROI** and ~£891K net benefit. Switching to risk-score targeting of the top 20% with tiered intervention costs pushes that to **144% ROI** and **£2.14M net benefit**. The side-by-side comparison makes the business case impossible to dismiss: how you *select* patients matters far more than how much you *spend* on each one.
-
 ---
 
-### 📊 Charts 15–17 — Supporting Segmentation Analyses
+### 📈 Chart — ROI vs % of Patients Targeted (The Optimisation Curve)
 
-![Chart 15](images/chart15%20.png) ![Chart 16](images/chart16.png) ![Chart 17](images/chart17.png)
+```python
+import numpy as np
+import matplotlib.pyplot as plt
 
-**What they show:** Three supporting cuts — diabetic vs non-diabetic success rates across medication tiers (Chart 15), the specific isolation of the worst-performing segment (Chart 16), and a comparison of outcome distributions across risk cohorts (Chart 17). Together they triangulate the same conclusion from different directions: **diabetes combined with age 50–70 and high medication load is the single most dangerous patient profile in this dataset**, and it requires a dedicated care pathway, not just a flag in a general model.
+cost_per_readmission = 15000
+base_effectiveness = 0.30
+intervention_cost = 500
+
+df['risk_score'] = (
+    (df['medication_count'] * 0.4) +
+    (df['diabetes'] * 2) +
+    (df['length_of_stay'] * 0.3)
+)
+df_sorted = df.sort_values(by='risk_score', ascending=False).reset_index(drop=True)
+
+percentages = np.arange(0.1, 1.1, 0.1)
+rois = []
+
+for p in percentages:
+    n = int(p * len(df_sorted))
+    segment = df_sorted.head(n).copy()
+
+    # Dynamic effectiveness: higher risk → higher impact
+    segment['dynamic_effectiveness'] = (
+        0.1 + (segment['risk_score'] / segment['risk_score'].max()) * base_effectiveness
+    )
+
+    expected_reduction = (segment['readmitted_30_days'] * segment['dynamic_effectiveness']).sum()
+    saved_cost = expected_reduction * cost_per_readmission
+
+    # Scaling penalty: cost rises non-linearly as coverage expands
+    scale_penalty = 1 + (n / len(df)) ** 2
+    intervention_total_cost = n * intervention_cost * scale_penalty
+
+    net_benefit = saved_cost - intervention_total_cost
+    roi = net_benefit / intervention_total_cost
+    rois.append(roi)
+
+best_idx = np.argmax(rois)
+
+print(f"🎯 Optimal Target %: {percentages[best_idx] * 100:.0f}%")
+print(f"🚀 Max ROI: {rois[best_idx]:.2f}")
+
+plt.figure(figsize=(10, 6))
+plt.plot(percentages * 100, rois, marker='o')
+plt.axvline(percentages[best_idx] * 100, linestyle='--', color='red', label='Optimal point')
+plt.title("ROI vs % of Patients Targeted (Realistic Model)")
+plt.xlabel("Target Population (%)")
+plt.ylabel("ROI")
+plt.legend()
+plt.grid()
+plt.show()
+
+print(f"\n📌 Business Insight:")
+print(f"Focus on top {int(percentages[best_idx]*100)}% patients for maximum ROI.")
+print("Avoid broad interventions — diminishing returns kick in quickly.")
+```
+
+```
+🎯 Optimal Target %: 10%
+🚀 Max ROI: 0.43
+
+📌 Business Insight:
+Focus on top 10% patients for maximum ROI.
+Avoid broad interventions — diminishing returns kick in quickly.
+```
+
+![Chart 12](images/chart12.png)
+
+**What it shows:** ROI peaks at ~43% when targeting the top 10% of highest-risk patients, then falls steadily as coverage expands — a direct consequence of the `scale_penalty` term that models real-world cost increases at scale. **The curve has a clear optimal point.** Broadening intervention beyond the peak costs more and saves proportionally less. This is the quantitative backbone for every recommendation in this project: smarter targeting, not wider coverage, is what maximises return.
 
 ---
 
